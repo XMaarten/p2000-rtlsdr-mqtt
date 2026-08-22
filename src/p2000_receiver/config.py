@@ -13,9 +13,11 @@ _ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 
 def _expand_env(value: Any) -> Any:
     if isinstance(value, str):
+
         def repl(match: re.Match[str]) -> str:
             name, default = match.group(1), match.group(2)
             return os.environ.get(name, default or "")
+
         return _ENV_RE.sub(repl, value)
     if isinstance(value, list):
         return [_expand_env(v) for v in value]
@@ -159,13 +161,15 @@ def load_config(path: str | Path) -> AppConfig:
         route_id = str(item["id"]).strip()
         if not route_id or not re.fullmatch(r"[A-Za-z0-9_-]+", route_id):
             raise ValueError(f"invalid route id: {route_id!r}")
-        routes.append(RouteConfig(
-            id=route_id,
-            name=str(item.get("name") or route_id),
-            icon=str(item.get("icon") or "mdi:radio-tower"),
-            include=_match(item.get("include")),
-            exclude=_match(item.get("exclude")),
-        ))
+        routes.append(
+            RouteConfig(
+                id=route_id,
+                name=str(item.get("name") or route_id),
+                icon=str(item.get("icon") or "mdi:radio-tower"),
+                include=_match(item.get("include")),
+                exclude=_match(item.get("exclude")),
+            )
+        )
     if not routes:
         routes = [RouteConfig(id="all", name="P2000")]
 

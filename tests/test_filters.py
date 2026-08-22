@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from p2000_receiver.config import GlobalFilterConfig, MatchConfig, RouteConfig
 from p2000_receiver.filters import globally_ignored, route_matches
@@ -9,7 +9,7 @@ def message():
     return P2000Message(
         body="P 1 Brand Alkmaar",
         capcodes=["001234567", "001234568"],
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
         disciplines=["Brandweer", "Ambulance"],
         regions=["Noord-Holland Noord", "Landelijk"],
         locations=["Alkmaar"],
@@ -21,17 +21,13 @@ def test_route_ands_fields_and_ors_values():
     route = RouteConfig(
         id="x",
         name="x",
-        include=MatchConfig(
-            disciplines=["Brandweer"], regions=["Noord-Holland Noord", "Utrecht"]
-        ),
+        include=MatchConfig(disciplines=["Brandweer"], regions=["Noord-Holland Noord", "Utrecht"]),
     )
     assert route_matches(message(), route)
 
 
 def test_exclude_rejects():
-    route = RouteConfig(
-        id="x", name="x", exclude=MatchConfig(text=["*Alkmaar*"])
-    )
+    route = RouteConfig(id="x", name="x", exclude=MatchConfig(text=["*Alkmaar*"]))
     assert not route_matches(message(), route)
 
 

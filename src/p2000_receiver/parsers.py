@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .models import RawPage
 
@@ -74,7 +74,7 @@ def parse_deflex_log_line(line: str) -> RawPage | None:
     try:
         received = datetime.fromisoformat(match.group("ts").replace("Z", "+00:00"))
     except ValueError:
-        received = datetime.now(timezone.utc)
+        received = datetime.now(UTC)
     return RawPage(
         body=match.group("body").replace("\\n", "\n").strip(),
         capcodes=(),

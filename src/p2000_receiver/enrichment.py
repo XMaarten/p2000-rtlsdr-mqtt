@@ -51,16 +51,12 @@ def detect_services(body: str, details: list[CapcodeInfo]) -> list[str]:
         if name not in services:
             services.append(name)
 
-    if (
-        "brandweer" in metadata
-        or "brw" in metadata
-        or re.search(r"\bbr\b", body_cf)
-    ):
+    if "brandweer" in metadata or "brw" in metadata or re.search(r"\bbr\b", body_cf):
         add("Brandweer")
-    if (
-        any(term in metadata for term in ("ambulance", "ambulancezorg", "mka", "ambu", "lifeliner", "traumaheli"))
-        or re.match(r"^(?:a\s?[012]|b\s?[12])\b", body_cf)
-    ):
+    if any(
+        term in metadata
+        for term in ("ambulance", "ambulancezorg", "mka", "ambu", "lifeliner", "traumaheli")
+    ) or re.match(r"^(?:a\s?[012]|b\s?[12])\b", body_cf):
         add("Ambulance")
     if "politie" in metadata or "politie" in body_cf:
         add("Politie")
@@ -102,6 +98,7 @@ def enrich(page: RawPage, db: CapcodeDatabase) -> P2000Message:
         capcode_details=details,
         postal_code=(
             f"{postcode_match.group(1)}{postcode_match.group(2).upper()}"
-            if postcode_match else None
+            if postcode_match
+            else None
         ),
     )

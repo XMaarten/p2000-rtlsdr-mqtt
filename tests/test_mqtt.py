@@ -1,20 +1,20 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from p2000_receiver.config import RouteConfig
-from p2000_receiver.models import P2000Message
 from p2000_receiver.home_assistant import (
     history_attributes,
     history_entry,
     sensor_attributes,
     sensor_state,
 )
+from p2000_receiver.models import P2000Message
 
 
 def _message(body: str = "P 1 BR ALKMAAR Testmelding") -> P2000Message:
     return P2000Message(
         body=body,
         capcodes=["000123456", "000654321"],
-        received_at=datetime(2026, 8, 22, 12, 34, 56, tzinfo=timezone.utc),
+        received_at=datetime(2026, 8, 22, 12, 34, 56, tzinfo=UTC),
         source_time="2026-08-22 14:34:56",
         priority=1,
         disciplines=["Brandweer"],
@@ -58,7 +58,7 @@ def test_home_assistant_attributes_omit_empty_optional_values():
     msg = P2000Message(
         body="Test",
         capcodes=[],
-        received_at=datetime(2026, 8, 22, 12, 34, 56, tzinfo=timezone.utc),
+        received_at=datetime(2026, 8, 22, 12, 34, 56, tzinfo=UTC),
     )
     attrs = sensor_attributes(route, msg)
 

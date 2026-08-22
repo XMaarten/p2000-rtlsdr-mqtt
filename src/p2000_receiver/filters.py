@@ -24,9 +24,7 @@ def globally_ignored(message: P2000Message, config: GlobalFilterConfig) -> bool:
     if _any_matches(config.ignore_text, [message.body]):
         return True
     if config.ignore_capcodes and message.capcodes:
-        per_code = [
-            _any_matches(config.ignore_capcodes, [capcode]) for capcode in message.capcodes
-        ]
+        per_code = [_any_matches(config.ignore_capcodes, [capcode]) for capcode in message.capcodes]
         if config.ignore_capcodes_mode == "all":
             return all(per_code)
         return any(per_code)
@@ -46,14 +44,16 @@ def _include_matches(message: P2000Message, include: MatchConfig) -> bool:
 
 
 def _exclude_matches(message: P2000Message, exclude: MatchConfig) -> bool:
-    return any([
-        _any_matches(exclude.text, [message.body]),
-        _any_matches(exclude.capcodes, message.capcodes),
-        _any_matches(exclude.disciplines, message.disciplines),
-        _any_matches(exclude.regions, message.regions),
-        _any_matches(exclude.locations, message.locations),
-        _any_matches(exclude.remarks, message.remarks),
-    ])
+    return any(
+        [
+            _any_matches(exclude.text, [message.body]),
+            _any_matches(exclude.capcodes, message.capcodes),
+            _any_matches(exclude.disciplines, message.disciplines),
+            _any_matches(exclude.regions, message.regions),
+            _any_matches(exclude.locations, message.locations),
+            _any_matches(exclude.remarks, message.remarks),
+        ]
+    )
 
 
 def route_matches(message: P2000Message, route: RouteConfig) -> bool:

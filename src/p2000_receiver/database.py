@@ -8,7 +8,7 @@ import logging
 import sqlite3
 import urllib.request
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .models import CapcodeInfo
@@ -76,15 +76,17 @@ class CapcodeDatabase:
         for code in capcodes:
             row = by_code.get(code)
             if row:
-                out.append(CapcodeInfo(
-                    capcode=code,
-                    discipline=row["discipline"],
-                    region=row["region"],
-                    region_code=row["region_code"],
-                    location=row["location"],
-                    remark=row["remark"],
-                    short=row["short"],
-                ))
+                out.append(
+                    CapcodeInfo(
+                        capcode=code,
+                        discipline=row["discipline"],
+                        region=row["region"],
+                        region_code=row["region_code"],
+                        location=row["location"],
+                        remark=row["remark"],
+                        short=row["short"],
+                    )
+                )
             else:
                 out.append(CapcodeInfo(capcode=code))
         return out
@@ -105,7 +107,7 @@ class CapcodeDatabase:
             last = datetime.fromisoformat(value)
         except ValueError:
             return True
-        return datetime.now(timezone.utc) - last >= timedelta(hours=interval_hours)
+        return datetime.now(UTC) - last >= timedelta(hours=interval_hours)
 
     def geocode_get(self, query: str) -> tuple[float, float] | None:
         row = self.conn.execute(
@@ -118,7 +120,7 @@ class CapcodeDatabase:
             "INSERT INTO geocode_cache(query, latitude, longitude, updated_at) VALUES(?,?,?,?) "
             "ON CONFLICT(query) DO UPDATE SET latitude=excluded.latitude, "
             "longitude=excluded.longitude, updated_at=excluded.updated_at",
-            (query, latitude, longitude, datetime.now(timezone.utc).isoformat()),
+            (query, latitude, longitude, datetime.now(UTC).isoformat()),
         )
         self.conn.commit()
 
@@ -170,7 +172,7 @@ class CapcodeDatabase:
             _LOG.info("Capcode database unchanged (%s records)", len(records))
             return len(records)
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with self.conn:
             self.conn.execute("DROP TABLE IF EXISTS capcodes_staging")
             # CREATE TABLE ... AS SELECT does not copy PRIMARY KEY/UNIQUE constraints.
@@ -211,9 +213,7 @@ class CapcodeDatabase:
             if count < min_records:
                 raise ValueError(f"staging validation failed: {count} records")
             self.conn.execute("DELETE FROM capcodes")
-            self.conn.execute(
-                "INSERT INTO capcodes SELECT * FROM capcodes_staging"
-            )
+            self.conn.execute("INSERT INTO capcodes SELECT * FROM capcodes_staging")
             self.conn.executemany(
                 "INSERT INTO metadata(key,value) VALUES(?,?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",

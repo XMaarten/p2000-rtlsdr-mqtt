@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import signal
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .config import AppConfig
 from .database import CapcodeDatabase
@@ -36,7 +36,7 @@ class App:
             "duplicates": 0,
             "ignored": 0,
             "published_routes": 0,
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": datetime.now(UTC).isoformat(),
         }
 
     def _signal(self, signum, frame) -> None:
@@ -124,7 +124,7 @@ class App:
                         self.mqtt.publish_route(route, message, history)
                         matched += 1
                 self.stats["published_routes"] += matched
-                self.stats["last_message_at"] = datetime.now(timezone.utc).isoformat()
+                self.stats["last_message_at"] = datetime.now(UTC).isoformat()
                 self.mqtt.publish_stats(self.stats)
                 _LOG.info(
                     "P2000 %s prio=%s capcodes=%s routes=%s %s",

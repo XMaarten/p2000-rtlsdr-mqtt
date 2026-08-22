@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import signal
@@ -15,12 +16,21 @@ from .parsers import parse_deflex_log_line, parse_multimon_line
 
 _LOG = logging.getLogger(__name__)
 
+
 def build_rtl_command(config: ReceiverConfig) -> list[str]:
     """Build rtl_fm command. `device` may be an index or an RTL-SDR serial number."""
     command = [
-        "rtl_fm", "-f", f"{config.frequency_mhz}M", "-M", "fm",
-        "-s", str(config.sample_rate), "-d", str(config.device),
-        "-p", str(config.ppm),
+        "rtl_fm",
+        "-f",
+        f"{config.frequency_mhz}M",
+        "-M",
+        "fm",
+        "-s",
+        str(config.sample_rate),
+        "-d",
+        str(config.device),
+        "-p",
+        str(config.ppm),
     ]
     if str(config.gain).lower() != "auto":
         command += ["-g", str(config.gain)]
@@ -29,10 +39,14 @@ def build_rtl_command(config: ReceiverConfig) -> list[str]:
 
 def build_multimon_command(config: ReceiverConfig) -> list[str]:
     return [
-        "multimon-ng", "-q", "-a", config.multimon_demodulator,
-        "-t", "raw", "-",
+        "multimon-ng",
+        "-q",
+        "-a",
+        config.multimon_demodulator,
+        "-t",
+        "raw",
+        "-",
     ]
-
 
 
 class MultimonDecoder:
@@ -102,7 +116,6 @@ class MultimonDecoder:
         rtl_rc = self._rtl.poll()
         raise RuntimeError(f"multimon-ng exited rc={rc}, rtl_fm rc={rtl_rc}")
 
-
     @staticmethod
     def _log_binary_stderr(stream, process_name: str) -> None:
         for raw_line in iter(stream.readline, b""):
@@ -120,19 +133,15 @@ class MultimonDecoder:
     def stop(self) -> None:
         for process in (self._multimon, self._rtl):
             if process and process.poll() is None:
-                try:
+                with contextlib.suppress(ProcessLookupError):
                     os.killpg(process.pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
         for process in (self._multimon, self._rtl):
             if process:
                 try:
                     process.wait(timeout=3)
                 except subprocess.TimeoutExpired:
-                    try:
+                    with contextlib.suppress(ProcessLookupError):
                         os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
         self._multimon = None
         self._rtl = None
         self._stderr_threads.clear()
