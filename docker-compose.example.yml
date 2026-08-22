@@ -1,0 +1,13 @@
+services:
+  p2000:
+    build: .
+    container_name: p2000-rtlsdr
+    restart: unless-stopped
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      - ./data:/data
+    environment:
+      MQTT_PASSWORD: change-me
+      # OPENCAGE_API_KEY: change-me

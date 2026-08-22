@@ -1,0 +1,86 @@
+version: 1
+
+general:
+  log_level: INFO
+
+receiver:
+  decoder: multimon
+  frequency_mhz: 169.65
+  device: "0"
+  gain: auto
+  ppm: 0
+  sample_rate: 22050
+  multimon_demodulator: FLEX
+  restart_delay_seconds: 5
+
+  # Experimental: deFLEX currently emits no usable FLEX capcode in its log output.
+  # When decoder is "deflex", install/mount deFLEX yourself and set both values below.
+  deflex_command:
+    - python3
+    - /opt/deflex/flex_receiver.py
+    - --live
+    - --freq
+    - "169.65"
+    - --driver
+    - rtlsdr
+    - --log
+    - /data/deflex
+  deflex_log_file: /data/deflex/169650000.flexdec.log
+
+mqtt:
+  host: 192.168.1.10
+  port: 1883
+  username: p2000
+  password: ${MQTT_PASSWORD}
+  tls: false
+  keepalive: 60
+  qos: 1
+  base_topic: p2000
+  home_assistant_discovery: true
+  discovery_prefix: homeassistant
+
+database:
+  path: /data/p2000.sqlite3
+  auto_update: true
+  update_interval_hours: 168
+  source_url: https://p2000.bommel.net/cap2csv.php
+  min_records: 5000
+
+dedupe:
+  window_seconds: 30
+  max_entries: 5000
+
+global_filters:
+  ignore_text:
+    - "*TEST*"
+    - "*Test*"
+  ignore_capcodes: []
+  ignore_capcodes_mode: any
+
+geocoding:
+  enabled: false
+  provider: opencage
+  api_key: ${OPENCAGE_API_KEY:-}
+  timeout_seconds: 8
+
+routes:
+  - id: all
+    name: P2000 alle meldingen
+    icon: mdi:radio-tower
+
+  - id: brandweer_nhn
+    name: P2000 Brandweer Noord-Holland Noord
+    icon: mdi:fire-truck
+    include:
+      disciplines:
+        - Brandweer
+      regions:
+        - Noord-Holland Noord
+
+  - id: lifeliners
+    name: P2000 Lifeliners
+    icon: mdi:helicopter
+    include:
+      capcodes:
+        - "*001420059*"
+        - "*000923993*"
