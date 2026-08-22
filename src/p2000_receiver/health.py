@@ -18,7 +18,7 @@ def _iter_cmdlines(proc_root: Path = Path('/proc')) -> Iterable[tuple[str, ...]]
             continue
         try:
             raw = (entry / 'cmdline').read_bytes()
-        except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
+        except OSError:
             continue
         if not raw:
             continue
