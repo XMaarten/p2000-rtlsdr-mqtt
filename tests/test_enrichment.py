@@ -44,12 +44,12 @@ def test_service_detection_uses_metadata_and_message_fallback(tmp_path):
         received_at=datetime.now(timezone.utc),
     )
     ambulance = RawPage(
-        body="A1 Wogmeer 1711AA",
+        body="A1 Alkmaar 1711AA",
         capcodes=("009999999",),
         received_at=datetime.now(timezone.utc),
     )
     fire = RawPage(
-        body="P 1 BR Wogmeer brand",
+        body="P 1 BR Alkmaar brand",
         capcodes=("009999998",),
         received_at=datetime.now(timezone.utc),
     )

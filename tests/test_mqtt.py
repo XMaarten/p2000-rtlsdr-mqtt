@@ -10,7 +10,7 @@ from p2000_receiver.home_assistant import (
 )
 
 
-def _message(body: str = "P 1 BR WOGMEER Testmelding") -> P2000Message:
+def _message(body: str = "P 1 BR ALKMAAR Testmelding") -> P2000Message:
     return P2000Message(
         body=body,
         capcodes=["000123456", "000654321"],
@@ -20,7 +20,7 @@ def _message(body: str = "P 1 BR WOGMEER Testmelding") -> P2000Message:
         disciplines=["Brandweer"],
         services=["Brandweer"],
         regions=["Noord-Holland Noord"],
-        locations=["Wogmeer"],
+        locations=["Alkmaar"],
         remarks=["Tankautospuit"],
         postal_code="1711AA",
         latitude=52.65,
@@ -37,7 +37,7 @@ def test_home_assistant_state_is_short_and_normalized():
 
 
 def test_home_assistant_attributes_are_readable_and_keep_full_message():
-    route = RouteConfig(id="wogmeer", name="P2000 Wogmeer")
+    route = RouteConfig(id="alkmaar", name="P2000 Alkmaar")
     msg = _message()
     attrs = sensor_attributes(route, msg)
 
@@ -47,10 +47,10 @@ def test_home_assistant_attributes_are_readable_and_keep_full_message():
     assert attrs["service"] == "Brandweer"
     assert attrs["discipline"] == "Brandweer"
     assert attrs["region"] == "Noord-Holland Noord"
-    assert attrs["location"] == "Wogmeer"
+    assert attrs["location"] == "Alkmaar"
     assert attrs["capcodes"] == ["000123456", "000654321"]
     assert attrs["capcodes_text"] == "000123456, 000654321"
-    assert attrs["route_id"] == "wogmeer"
+    assert attrs["route_id"] == "alkmaar"
 
 
 def test_home_assistant_attributes_omit_empty_optional_values():

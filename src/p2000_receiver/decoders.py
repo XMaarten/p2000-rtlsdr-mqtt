@@ -15,6 +15,25 @@ from .parsers import parse_deflex_log_line, parse_multimon_line
 
 _LOG = logging.getLogger(__name__)
 
+def build_rtl_command(config: ReceiverConfig) -> list[str]:
+    """Build rtl_fm command. `device` may be an index or an RTL-SDR serial number."""
+    command = [
+        "rtl_fm", "-f", f"{config.frequency_mhz}M", "-M", "fm",
+        "-s", str(config.sample_rate), "-d", str(config.device),
+        "-p", str(config.ppm),
+    ]
+    if str(config.gain).lower() != "auto":
+        command += ["-g", str(config.gain)]
+    return command
+
+
+def build_multimon_command(config: ReceiverConfig) -> list[str]:
+    return [
+        "multimon-ng", "-q", "-a", config.multimon_demodulator,
+        "-t", "raw", "-",
+    ]
+
+
 
 class MultimonDecoder:
     def __init__(self, config: ReceiverConfig):
@@ -37,17 +56,8 @@ class MultimonDecoder:
             time.sleep(self.config.restart_delay_seconds)
 
     def _run_once(self) -> Iterator[RawPage]:
-        rtl_cmd = [
-            "rtl_fm", "-f", f"{self.config.frequency_mhz}M", "-M", "fm",
-            "-s", str(self.config.sample_rate), "-d", str(self.config.device),
-            "-p", str(self.config.ppm),
-        ]
-        if str(self.config.gain).lower() != "auto":
-            rtl_cmd += ["-g", str(self.config.gain)]
-        multimon_cmd = [
-            "multimon-ng", "-q", "-a", self.config.multimon_demodulator,
-            "-t", "raw", "-",
-        ]
+        rtl_cmd = build_rtl_command(self.config)
+        multimon_cmd = build_multimon_command(self.config)
         _LOG.info("Starting receiver: %s -> %s", " ".join(rtl_cmd), " ".join(multimon_cmd))
         self._rtl = subprocess.Popen(  # noqa: S603
             rtl_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True
