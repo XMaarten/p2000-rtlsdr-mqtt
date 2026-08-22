@@ -23,4 +23,7 @@ WORKDIR /app
 VOLUME ["/config", "/data"]
 ENV P2000_CONFIG=/config/config.yaml
 
+HEALTHCHECK --interval=90s --timeout=10s --start-period=30s --retries=3 \
+    CMD ["p2000-rtlsdr", "--healthcheck"]
+
 ENTRYPOINT ["p2000-rtlsdr"]

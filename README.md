@@ -51,10 +51,39 @@ docker compose -f docker-compose.example.yml up -d --build
 Set the MQTT broker address and credentials in `config.yaml` / environment variables.
 The broker can run on the Home Assistant host or elsewhere.
 
-### USB
+### USB and receiver selection
 
 The example maps `/dev/bus/usb`. If you prefer a narrower device mapping, identify your
 RTL-SDR device on the host and change the compose file.
+
+When multiple RTL-SDR dongles are connected, select the receiver by **serial number** rather
+than device index. Device indexes can change after a reboot or USB reconnect. `rtl_fm` accepts
+either an index or a serial number for `-d`. For example:
+
+```yaml
+receiver:
+  device: "00000001"
+```
+
+Use `rtl_test` to list the connected receivers and their serial numbers.
+
+### Docker health check
+
+The image has a built-in health check that verifies that both `rtl_fm` and `multimon-ng` are
+running. It uses `/proc` directly and does not depend on `pgrep`/`procps`, which are not
+installed in the slim runtime image. A short automatic decoder restart will not normally mark
+the container unhealthy because Docker requires multiple consecutive failures.
+
+If your Compose file overrides the image health check, use:
+
+```yaml
+healthcheck:
+  test: ["CMD", "p2000-rtlsdr", "--healthcheck"]
+  interval: 90s
+  timeout: 10s
+  retries: 3
+  start_period: 30s
+```
 
 ## MQTT topics
 
@@ -127,13 +156,25 @@ tap_action:
 Filters use case-insensitive `fnmatch` patterns. Different configured include fields are
 ANDed; multiple patterns within one field are ORed.
 
-Example:
+Example routes:
 
 ```yaml
-include:
-  disciplines: [Brandweer]
-  regions: [Noord-Holland Noord]
-  text: ["*ALKMAAR*"]
+routes:
+  - id: all
+    name: P2000 alle meldingen
+    icon: mdi:radio-tower
+
+  - id: alkmaar
+    name: P2000 Alkmaar
+    icon: mdi:map-marker-alert
+    include:
+      text: ["*alkmaar*"]
+
+  - id: grip
+    name: P2000 GRIP
+    icon: mdi:alert
+    include:
+      text: ["*grip*"]
 ```
 
 An exclude match rejects the route. Global ignore filters run before routes.

@@ -3,6 +3,12 @@ services:
     build: .
     container_name: p2000-rtlsdr
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "p2000-rtlsdr", "--healthcheck"]
+      interval: 90s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     devices:
       - /dev/bus/usb:/dev/bus/usb
     volumes:

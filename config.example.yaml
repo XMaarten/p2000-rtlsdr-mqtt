@@ -6,7 +6,8 @@ general:
 receiver:
   decoder: multimon
   frequency_mhz: 169.65
-  device: "0"
+  # Device index or, preferably, a stable RTL-SDR serial number.
+  device: "00000001"
   gain: auto
   ppm: 0
   sample_rate: 22050
@@ -68,14 +69,19 @@ routes:
     name: P2000 alle meldingen
     icon: mdi:radio-tower
 
-  - id: brandweer_nhn
-    name: P2000 Brandweer Noord-Holland Noord
-    icon: mdi:fire-truck
+  - id: alkmaar
+    name: P2000 Alkmaar
+    icon: mdi:map-marker-alert
     include:
-      disciplines:
-        - Brandweer
-      regions:
-        - Noord-Holland Noord
+      text:
+        - "*alkmaar*"
+
+  - id: grip
+    name: P2000 GRIP
+    icon: mdi:alert
+    include:
+      text:
+        - "*grip*"
 
   - id: lifeliners
     name: P2000 Lifeliners
