@@ -12,7 +12,9 @@ from .health import receiver_is_healthy
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="P2000 RTL-SDR MQTT receiver")
-    parser.add_argument("--config", default=os.environ.get("P2000_CONFIG", "/config/config.yaml"))
+    parser.add_argument(
+        "--config", default=os.environ.get("P2000_CONFIG", "/config/config.yaml")
+    )
     parser.add_argument("--update-db", action="store_true", help="update capcode DB and exit")
     parser.add_argument(
         "--healthcheck", action="store_true", help="check whether receiver processes are running"

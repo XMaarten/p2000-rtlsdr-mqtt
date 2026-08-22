@@ -17,7 +17,13 @@ def sensor_state(message: P2000Message, max_length: int = 200) -> str:
 
 
 def _capcode_detail(detail: CapcodeInfo) -> str:
-    metadata = [detail.discipline, detail.location, detail.remark]
+    metadata = [
+        detail.service or detail.discipline,
+        detail.station or detail.location,
+        detail.callsign,
+        detail.unit_type_name or detail.unit_type,
+        detail.description or detail.remark,
+    ]
     suffix = " · ".join(value for value in metadata if value)
     return f"{detail.capcode} — {suffix}" if suffix else detail.capcode
 
@@ -35,9 +41,12 @@ def history_entry(message: P2000Message) -> dict[str, Any]:
         "discipline": ", ".join(message.disciplines),
         "capcodes": message.capcodes,
         "location": ", ".join(message.locations),
+        "station": ", ".join(message.stations),
+        "callsign": ", ".join(message.callsigns),
+        "unit_type": ", ".join(message.unit_type_names or message.unit_types),
         "region": ", ".join(message.regions),
     }
-    entry.update({k: v for k, v in optional.items() if v not in (None, "", [])})
+    entry.update({key: value for key, value in optional.items() if value not in (None, "", [])})
     return entry
 
 
@@ -68,7 +77,13 @@ def sensor_attributes(route: RouteConfig, message: P2000Message) -> dict[str, An
         "discipline": ", ".join(message.disciplines),
         "region": ", ".join(message.regions),
         "location": ", ".join(message.locations),
+        "station": ", ".join(message.stations),
+        "description": ", ".join(message.descriptions),
         "remark": ", ".join(message.remarks),
+        "unit_type": ", ".join(message.unit_types),
+        "unit_type_name": ", ".join(message.unit_type_names),
+        "callsign": ", ".join(message.callsigns),
+        "unit_number": ", ".join(message.unit_numbers),
         "capcodes": message.capcodes,
         "capcodes_text": ", ".join(message.capcodes),
         "capcode_details": [_capcode_detail(detail) for detail in message.capcode_details],

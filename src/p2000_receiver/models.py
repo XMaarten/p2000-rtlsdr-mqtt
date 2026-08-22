@@ -28,11 +28,20 @@ class RawPage:
 class CapcodeInfo:
     capcode: str
     discipline: str | None = None
+    service: str | None = None
     region: str | None = None
     region_code: str | None = None
     location: str | None = None
+    station: str | None = None
+    description: str | None = None
     remark: str | None = None
     short: str | None = None
+    unit_type: str | None = None
+    unit_type_name: str | None = None
+    callsign: str | None = None
+    unit_number: str | None = None
+    status: str | None = None
+    metadata_confidence: str | None = None
 
 
 @dataclass(slots=True)
@@ -53,8 +62,14 @@ class P2000Message:
     regions: list[str] = field(default_factory=list)
     region_codes: list[str] = field(default_factory=list)
     locations: list[str] = field(default_factory=list)
+    stations: list[str] = field(default_factory=list)
+    descriptions: list[str] = field(default_factory=list)
     remarks: list[str] = field(default_factory=list)
     shorts: list[str] = field(default_factory=list)
+    unit_types: list[str] = field(default_factory=list)
+    unit_type_names: list[str] = field(default_factory=list)
+    callsigns: list[str] = field(default_factory=list)
+    unit_numbers: list[str] = field(default_factory=list)
     capcode_details: list[CapcodeInfo] = field(default_factory=list)
     postal_code: str | None = None
     latitude: float | None = None

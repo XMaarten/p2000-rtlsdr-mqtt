@@ -17,7 +17,8 @@ Design goals:
 - MQTT Event entities plus last-message sensors through Home Assistant discovery;
 - robust FLEX parsing with malformed-line handling;
 - aggregate metadata from **all** capcodes instead of letting the last capcode win;
-- transactional capcode database updates from the public Bommel CSV source;
+- atomic capcode database updates from `XMaarten/p2000-capcodes`;
+- separate replaceable reference data and persistent local runtime state;
 - duplicate suppression;
 - decoder abstraction: `multimon-ng` by default, experimental external `deFLEX` adapter;
 - testable modules instead of one large Python file.
@@ -114,6 +115,9 @@ A normalized message contains, among other fields:
   "disciplines": ["Brandweer"],
   "regions": ["Noord-Holland Noord"],
   "locations": ["Alkmaar"],
+  "stations": ["Alkmaar"],
+  "callsigns": ["TS-3531"],
+  "unit_type_names": ["Tankautospuit"],
   "remarks": ["..."],
   "decoder": "multimon"
 }
@@ -128,7 +132,7 @@ MQTT discovery creates for every configured route:
 
 The sensor state is a normalized, truncated message (maximum 200 characters). The full
 message is kept in the `message` attribute together with `time`, `priority`, `discipline`,
-`region`, `location`, `remark`, `capcodes`, postal code, coordinates and message ID.
+`region`, `location`, `station`, `description`, `unit_type`, `callsign`, `capcodes`, postal code, coordinates and message ID.
 `force_update` is enabled so Home Assistant can record a newly received message even when
 the short state happens to be identical to the previous one.
 
@@ -184,22 +188,63 @@ An exclude match rejects the route. Global ignore filters run before routes.
 - `any`: ignore when any capcode matches;
 - `all`: ignore only when all capcodes match.
 
-## Capcode database
+## Capcode databases
 
-The database is SQLite and is created automatically. When enabled, the updater downloads
-the CSV published by `p2000.bommel.net`, validates it, imports it into a staging table and
-then swaps the data in one transaction. Local tables (such as geocode cache) are not
-replaced.
+The receiver deliberately uses **two separate SQLite databases**:
 
-The updater stores the source hash, record count and update time. A fresh installation
-updates before reception starts; later refreshes run periodically in a background thread. A
-failed or suspicious update leaves the existing capcode table intact.
+```text
+/data/capcodes.sqlite3   read-only reference dataset
+/data/runtime.sqlite3    local writable state
+```
+
+`capcodes.sqlite3` is downloaded from
+[`XMaarten/p2000-capcodes`](https://github.com/XMaarten/p2000-capcodes) and is used
+directly for capcode metadata and abbreviations. It contains the merged/enriched data from
+the source project, including normalized service, station, unit type, callsign and unit
+number fields.
+
+`runtime.sqlite3` contains only local information owned by this receiver:
+
+- route history;
+- geocode cache;
+- capcode download/check metadata.
+
+This split means a database refresh never has to merge imported capcodes into a writable
+runtime database. The new reference artifact is downloaded to a temporary file, checked
+with SQLite `PRAGMA quick_check`, validated for required tables/columns and minimum record
+count, and then installed with an **atomic file replacement**. A failed or incomplete
+download leaves the previous `capcodes.sqlite3` untouched.
+
+The receiver no longer supports the legacy Bommel CSV importer. `p2000-capcodes` is the
+single source artifact; source collection and conflict resolution belong in that project.
+
+Default configuration:
+
+```yaml
+database:
+  capcodes_path: /data/capcodes.sqlite3
+  runtime_path: /data/runtime.sqlite3
+  auto_update: true
+  update_interval_hours: 168
+  source_url: https://raw.githubusercontent.com/XMaarten/p2000-capcodes/main/data/capcodes.sqlite3
+  min_records: 5000
+```
+
+A fresh installation downloads the reference dataset before reception starts. Later checks
+run periodically in a background thread. When the remote file is unchanged, only the local
+`capcodes_checked_at` timestamp is updated.
 
 Manual update:
 
 ```bash
 p2000-rtlsdr --config /config/config.yaml --update-db
 ```
+
+### Upgrade from the old combined database
+
+Older releases used `/data/p2000.sqlite3` for both capcodes and local state. Version 0.2.0
+uses the two files above instead. The old file can be removed once the new version is
+running. No migration is required.
 
 ## multimon-ng
 

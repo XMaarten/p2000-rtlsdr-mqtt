@@ -21,13 +21,17 @@ def test_route_ands_fields_and_ors_values():
     route = RouteConfig(
         id="x",
         name="x",
-        include=MatchConfig(disciplines=["Brandweer"], regions=["Noord-Holland Noord", "Utrecht"]),
+        include=MatchConfig(
+            disciplines=["Brandweer"], regions=["Noord-Holland Noord", "Utrecht"]
+        ),
     )
     assert route_matches(message(), route)
 
 
 def test_exclude_rejects():
-    route = RouteConfig(id="x", name="x", exclude=MatchConfig(text=["*Alkmaar*"]))
+    route = RouteConfig(
+        id="x", name="x", exclude=MatchConfig(text=["*Alkmaar*"])
+    )
     assert not route_matches(message(), route)
 
 

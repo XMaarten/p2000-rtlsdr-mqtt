@@ -26,7 +26,9 @@ def test_malformed_multimon_is_ignored():
 
 
 def test_deflex_does_not_fabricate_capcode():
-    page = parse_deflex_log_line("2026-08-22T10:00:00Z FLEX|169650000|123|A|0|ALN|P 1 TEST")
+    page = parse_deflex_log_line(
+        "2026-08-22T10:00:00Z FLEX|169650000|123|A|0|ALN|P 1 TEST"
+    )
     assert page is not None
     assert page.capcodes == ()
     assert page.confidence == "A"

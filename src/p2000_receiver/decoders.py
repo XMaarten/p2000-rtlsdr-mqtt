@@ -16,21 +16,12 @@ from .parsers import parse_deflex_log_line, parse_multimon_line
 
 _LOG = logging.getLogger(__name__)
 
-
 def build_rtl_command(config: ReceiverConfig) -> list[str]:
     """Build rtl_fm command. `device` may be an index or an RTL-SDR serial number."""
     command = [
-        "rtl_fm",
-        "-f",
-        f"{config.frequency_mhz}M",
-        "-M",
-        "fm",
-        "-s",
-        str(config.sample_rate),
-        "-d",
-        str(config.device),
-        "-p",
-        str(config.ppm),
+        "rtl_fm", "-f", f"{config.frequency_mhz}M", "-M", "fm",
+        "-s", str(config.sample_rate), "-d", str(config.device),
+        "-p", str(config.ppm),
     ]
     if str(config.gain).lower() != "auto":
         command += ["-g", str(config.gain)]
@@ -39,14 +30,10 @@ def build_rtl_command(config: ReceiverConfig) -> list[str]:
 
 def build_multimon_command(config: ReceiverConfig) -> list[str]:
     return [
-        "multimon-ng",
-        "-q",
-        "-a",
-        config.multimon_demodulator,
-        "-t",
-        "raw",
-        "-",
+        "multimon-ng", "-q", "-a", config.multimon_demodulator,
+        "-t", "raw", "-",
     ]
+
 
 
 class MultimonDecoder:
@@ -115,6 +102,7 @@ class MultimonDecoder:
         rc = self._multimon.wait()
         rtl_rc = self._rtl.poll()
         raise RuntimeError(f"multimon-ng exited rc={rc}, rtl_fm rc={rtl_rc}")
+
 
     @staticmethod
     def _log_binary_stderr(stream, process_name: str) -> None:

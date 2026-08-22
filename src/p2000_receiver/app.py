@@ -21,7 +21,9 @@ _LOG = logging.getLogger(__name__)
 class App:
     def __init__(self, config: AppConfig):
         self.config = config
-        self.db = CapcodeDatabase(config.database.path)
+        self.db = CapcodeDatabase(
+            config.database.capcodes_path, config.database.runtime_path
+        )
         self.decoder = make_decoder(config.receiver)
         self.dedupe = DedupeCache(config.dedupe.window_seconds, config.dedupe.max_entries)
         self.geocoder = Geocoder(config.geocoding, self.db)
@@ -60,9 +62,9 @@ class App:
 
     def _database_maintenance(self) -> None:
         cfg = self.config.database
-        # Use a separate SQLite connection in this thread. SQLite commits become visible
-        # to the main read connection without sharing a connection across threads.
-        db = CapcodeDatabase(cfg.path)
+        # Use a separate runtime SQLite connection in this maintenance thread.
+        # The reference database itself is replaced atomically on disk.
+        db = CapcodeDatabase(cfg.capcodes_path, cfg.runtime_path)
         check_every = max(300, min(3600, int(cfg.update_interval_hours * 3600 / 4)))
         try:
             while not self._stop_event.wait(check_every):

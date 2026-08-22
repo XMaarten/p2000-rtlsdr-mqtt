@@ -1,35 +1,24 @@
 from __future__ import annotations
 
-import csv
 import hashlib
-import io
 import json
 import logging
+import os
 import sqlite3
+import tempfile
 import urllib.request
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .models import CapcodeInfo
-from .parsers import normalize_capcode
 
 _LOG = logging.getLogger(__name__)
+_SQLITE_MAGIC = b"SQLite format 3\x00"
 
-SCHEMA = """
+_RUNTIME_SCHEMA = """
 PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
-CREATE TABLE IF NOT EXISTS capcodes (
-    capcode TEXT PRIMARY KEY,
-    discipline TEXT,
-    region TEXT,
-    region_code TEXT,
-    location TEXT,
-    remark TEXT,
-    short TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_capcodes_region ON capcodes(region);
-CREATE INDEX IF NOT EXISTS idx_capcodes_discipline ON capcodes(discipline);
 CREATE TABLE IF NOT EXISTS metadata (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -51,63 +40,54 @@ CREATE INDEX IF NOT EXISTS idx_route_history_route_id
     ON route_history(route_id, id DESC);
 """
 
+_REQUIRED_SOURCE_TABLES = {"capcodes", "capcodes_meta", "abbreviations"}
+_REQUIRED_CAPCODE_COLUMNS = {
+    "capcode",
+    "discipline",
+    "region",
+    "location",
+    "description",
+    "remark",
+}
+_REQUIRED_META_COLUMNS = {
+    "capcode",
+    "service",
+    "region_code",
+    "station",
+    "unit_type",
+    "unit_type_name",
+    "callsign",
+    "unit_number",
+    "status",
+    "confidence",
+}
 
-class CapcodeDatabase:
-    def __init__(self, path: str):
+
+class RuntimeDatabase:
+    """Writable local state that must survive capcode dataset replacements."""
+
+    def __init__(self, path: str | Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.path, timeout=20)
         self.conn.row_factory = sqlite3.Row
-        self.conn.executescript(SCHEMA)
+        self.conn.executescript(_RUNTIME_SCHEMA)
         self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
 
-    def lookup_many(self, capcodes: list[str]) -> list[CapcodeInfo]:
-        if not capcodes:
-            return []
-        marks = ",".join("?" for _ in capcodes)
-        rows = self.conn.execute(
-            f"SELECT * FROM capcodes WHERE capcode IN ({marks})", capcodes
-        ).fetchall()
-        by_code = {row["capcode"]: row for row in rows}
-        out: list[CapcodeInfo] = []
-        for code in capcodes:
-            row = by_code.get(code)
-            if row:
-                out.append(
-                    CapcodeInfo(
-                        capcode=code,
-                        discipline=row["discipline"],
-                        region=row["region"],
-                        region_code=row["region_code"],
-                        location=row["location"],
-                        remark=row["remark"],
-                        short=row["short"],
-                    )
-                )
-            else:
-                out.append(CapcodeInfo(capcode=code))
-        return out
-
     def metadata(self, key: str) -> str | None:
         row = self.conn.execute("SELECT value FROM metadata WHERE key=?", (key,)).fetchone()
         return row[0] if row else None
 
-    def record_count(self) -> int:
-        row = self.conn.execute("SELECT COUNT(*) FROM capcodes").fetchone()
-        return int(row[0])
-
-    def needs_update(self, interval_hours: int) -> bool:
-        value = self.metadata("capcodes_updated_at")
-        if not value:
-            return True
-        try:
-            last = datetime.fromisoformat(value)
-        except ValueError:
-            return True
-        return datetime.now(UTC) - last >= timedelta(hours=interval_hours)
+    def metadata_set_many(self, values: dict[str, str]) -> None:
+        with self.conn:
+            self.conn.executemany(
+                "INSERT INTO metadata(key,value) VALUES(?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                list(values.items()),
+            )
 
     def geocode_get(self, query: str) -> tuple[float, float] | None:
         row = self.conn.execute(
@@ -154,141 +134,260 @@ class CapcodeDatabase:
         ).fetchall()
         return [json.loads(row[0]) for row in rows]
 
+
+class CapcodeDatabase:
+    """Read-only reference dataset plus separate writable runtime state.
+
+    `capcodes_path` is a replaceable artifact downloaded from p2000-capcodes.
+    `runtime_path` contains only local history, geocode cache and updater metadata.
+    """
+
+    def __init__(self, capcodes_path: str | Path, runtime_path: str | Path):
+        self.capcodes_path = Path(capcodes_path)
+        self.capcodes_path.parent.mkdir(parents=True, exist_ok=True)
+        self.runtime = RuntimeDatabase(runtime_path)
+
+    def close(self) -> None:
+        self.runtime.close()
+
+    def _connect_reference(self) -> sqlite3.Connection:
+        if not self.capcodes_path.exists():
+            raise FileNotFoundError(f"capcode database not found: {self.capcodes_path}")
+        conn = sqlite3.connect(
+            f"file:{self.capcodes_path}?mode=ro",
+            uri=True,
+            timeout=10,
+        )
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def lookup_many(self, capcodes: list[str]) -> list[CapcodeInfo]:
+        if not capcodes:
+            return []
+        if not self.capcodes_path.exists():
+            return [CapcodeInfo(capcode=code) for code in capcodes]
+
+        marks = ",".join("?" for _ in capcodes)
+        query = f"""
+            SELECT
+                c.capcode,
+                c.discipline,
+                m.service,
+                c.region,
+                m.region_code,
+                c.location,
+                m.station,
+                c.description,
+                c.remark,
+                m.unit_type,
+                m.unit_type_name,
+                m.callsign,
+                m.unit_number,
+                m.status,
+                m.confidence
+            FROM capcodes AS c
+            LEFT JOIN capcodes_meta AS m ON m.capcode = c.capcode
+            WHERE c.capcode IN ({marks})
+        """
+        with closing(self._connect_reference()) as conn:
+            rows = conn.execute(query, capcodes).fetchall()
+
+        by_code = {row["capcode"]: row for row in rows}
+        out: list[CapcodeInfo] = []
+        for code in capcodes:
+            row = by_code.get(code)
+            if not row:
+                out.append(CapcodeInfo(capcode=code))
+                continue
+            out.append(
+                CapcodeInfo(
+                    capcode=code,
+                    discipline=_clean(row["discipline"]),
+                    service=_clean(row["service"]),
+                    region=_clean(row["region"]),
+                    region_code=_clean(row["region_code"]),
+                    location=_clean(row["location"]),
+                    station=_clean(row["station"]),
+                    description=_clean(row["description"]),
+                    remark=_clean(row["remark"]),
+                    short=_clean(row["callsign"]),
+                    unit_type=_clean(row["unit_type"]),
+                    unit_type_name=_clean(row["unit_type_name"]),
+                    callsign=_clean(row["callsign"]),
+                    unit_number=_clean(row["unit_number"]),
+                    status=_clean(row["status"]),
+                    metadata_confidence=_clean(row["confidence"]),
+                )
+            )
+        return out
+
+    def metadata(self, key: str) -> str | None:
+        return self.runtime.metadata(key)
+
+    def record_count(self) -> int:
+        if not self.capcodes_path.exists():
+            return 0
+        try:
+            with closing(self._connect_reference()) as conn:
+                row = conn.execute("SELECT COUNT(*) FROM capcodes").fetchone()
+            return int(row[0])
+        except (sqlite3.DatabaseError, OSError):
+            return 0
+
+    def abbreviation_count(self) -> int:
+        if not self.capcodes_path.exists():
+            return 0
+        try:
+            with closing(self._connect_reference()) as conn:
+                row = conn.execute("SELECT COUNT(*) FROM abbreviations").fetchone()
+            return int(row[0])
+        except (sqlite3.DatabaseError, OSError):
+            return 0
+
+    def needs_update(self, interval_hours: int) -> bool:
+        if not self.capcodes_path.exists():
+            return True
+        value = self.metadata("capcodes_checked_at")
+        if not value:
+            return True
+        try:
+            last = datetime.fromisoformat(value)
+        except ValueError:
+            return True
+        return datetime.now(UTC) - last >= timedelta(hours=interval_hours)
+
+    def geocode_get(self, query: str) -> tuple[float, float] | None:
+        return self.runtime.geocode_get(query)
+
+    def geocode_put(self, query: str, latitude: float, longitude: float) -> None:
+        self.runtime.geocode_put(query, latitude, longitude)
+
+    def history_add(
+        self,
+        route_id: str,
+        message_id: str,
+        received_at: str,
+        payload: dict,
+        limit: int = 10,
+    ) -> list[dict]:
+        return self.runtime.history_add(route_id, message_id, received_at, payload, limit)
+
+    def history_get(self, route_id: str, limit: int = 10) -> list[dict]:
+        return self.runtime.history_get(route_id, limit)
+
     def update_from_url(self, url: str, min_records: int = 5000, timeout: int = 30) -> int:
-        request = urllib.request.Request(url, headers={"User-Agent": "p2000-rtlsdr-mqtt/0.1"})
+        request = urllib.request.Request(url, headers={"User-Agent": "p2000-rtlsdr-mqtt/0.2"})
         with closing(urllib.request.urlopen(request, timeout=timeout)) as response:  # noqa: S310
             payload = response.read()
-        return self.update_from_csv_bytes(payload, source=url, min_records=min_records)
+        return self.update_from_sqlite_bytes(payload, source=url, min_records=min_records)
 
-    def update_from_csv_bytes(self, payload: bytes, source: str, min_records: int = 5000) -> int:
-        text = _decode_csv(payload)
-        records = list(_parse_capcode_csv(text))
-        if len(records) < min_records:
-            raise ValueError(
-                f"capcode update rejected: only {len(records)} records (minimum {min_records})"
-            )
+    def update_from_sqlite_bytes(
+        self,
+        payload: bytes,
+        source: str,
+        min_records: int = 5000,
+    ) -> int:
+        if not payload.startswith(_SQLITE_MAGIC):
+            raise ValueError("capcode source is not a SQLite database")
+
         digest = hashlib.sha256(payload).hexdigest()
-        if digest == self.metadata("capcodes_source_sha256"):
-            _LOG.info("Capcode database unchanged (%s records)", len(records))
-            return len(records)
-
         now = datetime.now(UTC).isoformat()
-        with self.conn:
-            self.conn.execute("DROP TABLE IF EXISTS capcodes_staging")
-            # CREATE TABLE ... AS SELECT does not copy PRIMARY KEY/UNIQUE constraints.
-            # The Bommel dataset can contain duplicate capcodes, so staging needs its
-            # own primary key to make the upsert deterministic and prevent the final
-            # INSERT into capcodes from failing with UNIQUE constraint errors.
-            self.conn.execute(
-                "CREATE TEMP TABLE capcodes_staging ("
-                "capcode TEXT PRIMARY KEY,"
-                "discipline TEXT,"
-                "region TEXT,"
-                "region_code TEXT,"
-                "location TEXT,"
-                "remark TEXT,"
-                "short TEXT"
-                ")"
+        current_digest = self.metadata("capcodes_source_sha256")
+        if self.capcodes_path.exists() and digest == current_digest:
+            count = self.record_count()
+            self.runtime.metadata_set_many(
+                {
+                    "capcodes_checked_at": now,
+                    "capcodes_source": source,
+                    "capcodes_record_count": str(count),
+                }
             )
-            self.conn.executemany(
-                "INSERT INTO capcodes_staging "
-                "(capcode,discipline,region,region_code,location,remark,short) "
-                "VALUES(?,?,?,?,?,?,?) "
-                "ON CONFLICT(capcode) DO UPDATE SET "
-                "discipline=excluded.discipline, "
-                "region=excluded.region, "
-                "region_code=excluded.region_code, "
-                "location=excluded.location, "
-                "remark=excluded.remark, "
-                "short=excluded.short",
-                records,
-            )
-            count = self.conn.execute("SELECT COUNT(*) FROM capcodes_staging").fetchone()[0]
-            duplicate_count = len(records) - count
-            if duplicate_count:
-                _LOG.warning(
-                    "Capcode source contained %s duplicate row(s); kept one row per capcode",
-                    duplicate_count,
-                )
-            if count < min_records:
-                raise ValueError(f"staging validation failed: {count} records")
-            self.conn.execute("DELETE FROM capcodes")
-            self.conn.execute("INSERT INTO capcodes SELECT * FROM capcodes_staging")
-            self.conn.executemany(
-                "INSERT INTO metadata(key,value) VALUES(?,?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                [
-                    ("capcodes_source", source),
-                    ("capcodes_source_sha256", digest),
-                    ("capcodes_updated_at", now),
-                    ("capcodes_record_count", str(count)),
-                ],
-            )
-        _LOG.info("Updated capcode database: %s records", count)
-        return int(count)
+            _LOG.info("Capcode database unchanged (%s records)", count)
+            return count
 
-
-def _decode_csv(payload: bytes) -> str:
-    for encoding in ("utf-8-sig", "cp1252", "latin-1"):
+        temp_path: Path | None = None
         try:
-            return payload.decode(encoding)
-        except UnicodeDecodeError:
-            continue
-    return payload.decode("utf-8", errors="replace")
+            with tempfile.NamedTemporaryFile(
+                dir=self.capcodes_path.parent,
+                prefix=f".{self.capcodes_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+                temp_path = Path(handle.name)
+
+            count, abbreviation_count = _validate_source_database(temp_path, min_records)
+            os.replace(temp_path, self.capcodes_path)
+            temp_path = None
+
+            self.runtime.metadata_set_many(
+                {
+                    "capcodes_source": source,
+                    "capcodes_source_sha256": digest,
+                    "capcodes_updated_at": now,
+                    "capcodes_checked_at": now,
+                    "capcodes_record_count": str(count),
+                    "abbreviations_record_count": str(abbreviation_count),
+                }
+            )
+            _LOG.info(
+                "Installed capcode database: %s capcodes, %s abbreviations",
+                count,
+                abbreviation_count,
+            )
+            return count
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+
+
+def _validate_source_database(path: Path, min_records: int) -> tuple[int, int]:
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+    try:
+        quick_check = conn.execute("PRAGMA quick_check").fetchone()
+        if not quick_check or quick_check[0] != "ok":
+            raise ValueError(f"SQLite quick_check failed: {quick_check!r}")
+
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        missing_tables = _REQUIRED_SOURCE_TABLES - tables
+        if missing_tables:
+            missing = ", ".join(sorted(missing_tables))
+            raise ValueError(f"capcode database misses required table(s): {missing}")
+
+        capcode_columns = _table_columns(conn, "capcodes")
+        missing_capcode_columns = _REQUIRED_CAPCODE_COLUMNS - capcode_columns
+        if missing_capcode_columns:
+            missing = ", ".join(sorted(missing_capcode_columns))
+            raise ValueError(f"capcodes table misses required column(s): {missing}")
+
+        meta_columns = _table_columns(conn, "capcodes_meta")
+        missing_meta_columns = _REQUIRED_META_COLUMNS - meta_columns
+        if missing_meta_columns:
+            missing = ", ".join(sorted(missing_meta_columns))
+            raise ValueError(f"capcodes_meta table misses required column(s): {missing}")
+
+        count = int(conn.execute("SELECT COUNT(*) FROM capcodes").fetchone()[0])
+        if count < min_records:
+            raise ValueError(
+                f"capcode database rejected: only {count} records (minimum {min_records})"
+            )
+        abbreviation_count = int(
+            conn.execute("SELECT COUNT(*) FROM abbreviations").fetchone()[0]
+        )
+        return count, abbreviation_count
+    finally:
+        conn.close()
+
+
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
 def _clean(value: str | None) -> str | None:
-    value = (value or "").strip()
-    return value or None
-
-
-def _parse_capcode_csv(text: str):
-    sample = text[:8192]
-    try:
-        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
-    except csv.Error:
-        dialect = csv.excel
-        dialect.delimiter = ";"
-    rows = list(csv.reader(io.StringIO(text), dialect))
-    if not rows:
-        return
-
-    first = [c.strip().lower() for c in rows[0]]
-    aliases = {
-        "capcode": {"capcode", "code", "address"},
-        "discipline": {"discipline", "dienst"},
-        "region": {"regio", "region"},
-        "region_code": {"regiocode", "regioncode", "regio code"},
-        "location": {"korps", "location", "plaats"},
-        "remark": {"omschrijving", "remark", "description"},
-        "short": {"short", "kort", "korte omschrijving"},
-    }
-    index: dict[str, int] = {}
-    for key, names in aliases.items():
-        for i, header in enumerate(first):
-            if header in names:
-                index[key] = i
-                break
-    has_header = "capcode" in index
-    data_rows = rows[1:] if has_header else rows
-
-    def col(row: list[str], key: str, fallback: int) -> str | None:
-        i = index.get(key, fallback)
-        return row[i] if i < len(row) else None
-
-    for row in data_rows:
-        if not row or all(not c.strip() for c in row):
-            continue
-        try:
-            code = normalize_capcode(col(row, "capcode", 0) or "")
-        except ValueError:
-            continue
-        yield (
-            code,
-            _clean(col(row, "discipline", 1)),
-            _clean(col(row, "region", 2)),
-            _clean(col(row, "region_code", 3)),
-            _clean(col(row, "location", 4)),
-            _clean(col(row, "remark", 5)),
-            _clean(col(row, "short", 6)),
-        )
+    text = (value or "").strip()
+    return text or None

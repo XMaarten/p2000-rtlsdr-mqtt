@@ -27,36 +27,45 @@ def detect_priority(body: str) -> int | None:
 
 
 def detect_services(body: str, details: list[CapcodeInfo]) -> list[str]:
-    """Return stable, human-readable emergency service categories.
+    """Return stable, human-readable emergency service categories."""
+    services: list[str] = []
 
-    Prefer capcode metadata, but use well-known P2000 message markers as a fallback so
-    Home Assistant can still show Brandweer/Ambulance when a capcode is unknown.
-    """
+    def add(name: str) -> None:
+        if name and name not in services:
+            services.append(name)
+
+    # p2000-capcodes has an explicit normalized service field. Prefer it.
+    for detail in details:
+        if detail.service:
+            add(detail.service)
+
     metadata = " ".join(
         value
         for detail in details
         for value in (
             detail.discipline,
+            detail.service,
             detail.region_code,
+            detail.description,
             detail.remark,
             detail.short,
+            detail.unit_type,
+            detail.unit_type_name,
+            detail.callsign,
         )
         if value
     ).casefold()
-    compact_body = " ".join(body.split())
-    body_cf = compact_body.casefold()
-    services: list[str] = []
-
-    def add(name: str) -> None:
-        if name not in services:
-            services.append(name)
+    body_cf = " ".join(body.split()).casefold()
 
     if "brandweer" in metadata or "brw" in metadata or re.search(r"\bbr\b", body_cf):
         add("Brandweer")
-    if any(
-        term in metadata
-        for term in ("ambulance", "ambulancezorg", "mka", "ambu", "lifeliner", "traumaheli")
-    ) or re.match(r"^(?:a\s?[012]|b\s?[12])\b", body_cf):
+    if (
+        any(
+            term in metadata
+            for term in ("ambulance", "ambulancezorg", "mka", "ambu", "lifeliner", "traumaheli")
+        )
+        or re.match(r"^(?:a\s?[012]|b\s?[12])\b", body_cf)
+    ):
         add("Ambulance")
     if "politie" in metadata or "politie" in body_cf:
         add("Politie")
@@ -65,7 +74,6 @@ def detect_services(body: str, details: list[CapcodeInfo]) -> list[str]:
     if "knrm" in metadata or "knrm" in body_cf:
         add("KNRM")
 
-    # Preserve useful source disciplines when none of the normalized categories matched.
     if not services:
         for detail in details:
             if detail.discipline:
@@ -76,6 +84,11 @@ def detect_services(body: str, details: list[CapcodeInfo]) -> list[str]:
 def enrich(page: RawPage, db: CapcodeDatabase) -> P2000Message:
     details = db.lookup_many(list(page.capcodes))
     postcode_match = _POSTCODE_RE.search(page.body.upper())
+    descriptions = _unique(d.description for d in details)
+    source_remarks = _unique(d.remark for d in details)
+    # Existing route `remark` filters historically matched source descriptions.
+    # Include both the new description and source remark fields to remain compatible.
+    filter_remarks = _unique([*descriptions, *source_remarks])
     return P2000Message(
         body=page.body,
         capcodes=list(page.capcodes),
@@ -93,8 +106,14 @@ def enrich(page: RawPage, db: CapcodeDatabase) -> P2000Message:
         regions=_unique(d.region for d in details),
         region_codes=_unique(d.region_code for d in details),
         locations=_unique(d.location for d in details),
-        remarks=_unique(d.remark for d in details),
+        stations=_unique(d.station for d in details),
+        descriptions=descriptions,
+        remarks=filter_remarks,
         shorts=_unique(d.short for d in details),
+        unit_types=_unique(d.unit_type for d in details),
+        unit_type_names=_unique(d.unit_type_name for d in details),
+        callsigns=_unique(d.callsign for d in details),
+        unit_numbers=_unique(d.unit_number for d in details),
         capcode_details=details,
         postal_code=(
             f"{postcode_match.group(1)}{postcode_match.group(2).upper()}"

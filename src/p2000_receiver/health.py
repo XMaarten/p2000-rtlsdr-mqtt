@@ -22,29 +22,39 @@ def _iter_cmdlines(proc_root: Path = Path("/proc")) -> Iterable[tuple[str, ...]]
             continue
         if not raw:
             continue
-        args = tuple(part.decode("utf-8", errors="replace") for part in raw.split(b"\0") if part)
+        args = tuple(
+            part.decode("utf-8", errors="replace")
+            for part in raw.split(b"\0")
+            if part
+        )
         if args:
             yield args
 
+
 def _has_executable(cmdlines: Iterable[tuple[str, ...]], executable: str) -> bool:
     return any(args and Path(args[0]).name == executable for args in cmdlines)
+
 
 def _has_command_tokens(cmdlines: Iterable[tuple[str, ...]], tokens: list[str]) -> bool:
     if not tokens:
         return False
     return any(all(token in args for token in tokens) for args in cmdlines)
 
+
 def receiver_is_healthy(
-    config: ReceiverConfig, cmdlines: Iterable[tuple[str, ...]] | None = None
+    config: ReceiverConfig,
+    cmdlines: Iterable[tuple[str, ...]] | None = None,
 ) -> bool:
     """Return True when the configured decoder processes are currently running."""
     processes = list(_iter_cmdlines() if cmdlines is None else cmdlines)
 
     if config.decoder == "multimon":
-        return _has_executable(processes, "rtl_fm") and _has_executable(processes, "multimon-ng")
+        return _has_executable(processes, "rtl_fm") and _has_executable(
+            processes, "multimon-ng"
+        )
 
     if config.decoder == "deflex":
-        # Match the configured script/path rather than just `python3`, which would be too broad.
+        # Match the configured script/path rather than just python3, which is too broad.
         if len(config.deflex_command) >= 2:
             return _has_command_tokens(processes, [config.deflex_command[1]])
         if config.deflex_command:

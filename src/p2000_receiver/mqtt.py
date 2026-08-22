@@ -16,6 +16,7 @@ from .models import P2000Message
 _LOG = logging.getLogger(__name__)
 
 
+
 class MqttPublisher:
     def __init__(self, config: MqttConfig, routes: list[RouteConfig]):
         self.config = config
@@ -84,9 +85,8 @@ class MqttPublisher:
         return info
 
     def publish_json(self, topic: str, payload: dict[str, Any], retain: bool = False) -> None:
-        self.publish_raw(
-            topic, json.dumps(payload, ensure_ascii=False, separators=(",", ":")), retain
-        )
+        encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        self.publish_raw(topic, encoded, retain)
 
     def publish_message(self, message: P2000Message) -> None:
         self.publish_json(f"{self.config.base_topic}/messages", message.to_dict(), retain=False)
@@ -101,12 +101,18 @@ class MqttPublisher:
         self.publish_json(f"{base}/last", payload, retain=True)
         # Home Assistant gets a short state plus a human-readable attribute set.
         self.publish_raw(f"{base}/state", sensor_state(message), retain=True)
-        self.publish_json(f"{base}/attributes", sensor_attributes(route, message), retain=True)
+        self.publish_json(
+            f"{base}/attributes", sensor_attributes(route, message), retain=True
+        )
         self.publish_route_history(route, history)
 
-    def publish_route_history(self, route: RouteConfig, history: list[dict[str, Any]]) -> None:
+    def publish_route_history(
+        self, route: RouteConfig, history: list[dict[str, Any]]
+    ) -> None:
         base = f"{self.config.base_topic}/routes/{route.id}"
-        self.publish_json(f"{base}/history", history_attributes(route, history), retain=True)
+        self.publish_json(
+            f"{base}/history", history_attributes(route, history), retain=True
+        )
 
     def publish_stats(self, stats: dict[str, Any]) -> None:
         self.publish_json(f"{self.config.base_topic}/stats", stats, retain=True)
@@ -164,7 +170,9 @@ class MqttPublisher:
                 "qos": self.config.qos,
             }
             prefix = self.config.discovery_prefix
-            self.publish_json(f"{prefix}/event/p2000/{route.id}/config", event_config, retain=True)
+            self.publish_json(
+                f"{prefix}/event/p2000/{route.id}/config", event_config, retain=True
+            )
             self.publish_json(
                 f"{prefix}/sensor/p2000/{route.id}_last/config", sensor_config, retain=True
             )
