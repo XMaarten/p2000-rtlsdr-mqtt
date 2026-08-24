@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+
+- Display P2000 event times in Europe/Amsterdam while keeping UTC internally.
+- Preserve the raw decoder source timestamp as `source_time`.
+- Add readable `units` and `capcode_details` to route history and HA attributes.
+- Include callsign, unit type and unit number in retained route history.
+
 ## 0.2.0
 
 - Use `XMaarten/p2000-capcodes` as the only supported capcode source artifact.
